@@ -1,36 +1,29 @@
-# Dust Opacity Generator
+# Dust Property Generator using Optool
 
-A Python tool for generating dust opacity files for astrophysical simulations using Optool. This tool is designed to help astronomers and researchers generate dust opacity files for various materials, temperatures, and grain sizes, which can be used with radiative transfer codes like RADMC-3D.
+A simple tool that generates dust opacity files for different temperatures using Optool, specifically designed for astrophysical dust modeling.
 
-## Features
+## Project Structure
 
-- Generate dust opacity files for various materials and temperatures
-- Support for multiple grain sizes
-- Temperature-dependent opacity calculations
-- Compatible with RADMC-3D input format
-- Easy-to-use command line interface
-
-## Installation
-
-1. First, ensure you have [Optool](https://github.com/cdominik/optool) installed and accessible in your PATH.
-
-2. Clone this repository:
-```bash
-git clone https://github.com/yourusername/DustOpacityGenerator.git
-cd DustOpacityGenerator
+```
+DustOpacityGenerator/
+├── run_optool.py          # Main script
+├── data/
+│   └── nk_files/          # Material optical constants (.lnk files)
+├── README.md
+└── LICENSE
 ```
 
-3. Install the package:
-```bash
-pip install -e .
-```
+## Requirements
+
+- [Optool](https://github.com/cdominik/optool) must be installed and accessible in your PATH
+- Python 3.6+ (uses only standard library modules)
 
 ## Quick Start
 
 Generate dust properties for the default 4 temperatures (10K, 100K, 200K, 300K):
 
 ```bash
-generate_dust_opacity --material E40R --grain-size 0.3 --output-dir dust_files
+python run_optool.py --material E40R --grain-size 0.3 --output-dir dust_files
 ```
 
 ## Command Line Options
@@ -40,23 +33,23 @@ generate_dust_opacity --material E40R --grain-size 0.3 --output-dir dust_files
 - `--grain-size`: Grain size in microns (default: 0.3)
 - `--temperatures`: Comma-separated temperatures in K (default: 10,100,200,300)
 - `--output-dir`: Directory to save output files (default: radmc3d_model)
-- `--nk-dir`: Directory containing .lnk files (default: nk_optool)
+- `--nk-dir`: Directory containing .lnk files (default: data/nk_files)
 
 ## Examples
 
 Generate files for different material:
 ```bash
-generate_dust_opacity --material E20R --grain-size 0.5 --output-dir my_dust_files
+python run_optool.py --material E20R --grain-size 0.5 --output-dir my_dust_files
 ```
 
 Generate for custom temperatures:
 ```bash
-generate_dust_opacity --material E40R --grain-size 0.3 --temperatures 50,150,250,350
+python run_optool.py --material E40R --grain-size 0.3 --temperatures 50,150,250,350
 ```
 
 Generate single temperature file:
 ```bash
-generate_dust_opacity --material E40R --grain-size 0.3 --no-temp-dependent
+python run_optool.py --material E40R --grain-size 0.3 --no-temp-dependent
 ```
 
 ## Output
