@@ -98,7 +98,6 @@ def run_optool(material, grain_size, temp=None, nk_dir=DEFAULT_NK_DIR, output_di
         cmd = [
             "optool",
             nk_file,
-            "-s",                    # generate scattering matrix
             "-radmc",                # RADMC-3D format
             "-a", str(grain_size),   # grain size in microns
             "-o", temp_dir           # output directory
@@ -111,7 +110,7 @@ def run_optool(material, grain_size, temp=None, nk_dir=DEFAULT_NK_DIR, output_di
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         
         # Find generated file
-        source_file = os.path.join(temp_dir, "dustkapscatmat.inp")
+        source_file = os.path.join(temp_dir, "dustkappa.inp")
         if not os.path.exists(source_file):
             print(f"Error: Expected output file {source_file} not found.")
             return None
@@ -119,9 +118,9 @@ def run_optool(material, grain_size, temp=None, nk_dir=DEFAULT_NK_DIR, output_di
         # Create final filename
         base_material = re.sub(r'_\d+K$', '', material)
         if temp:
-            final_name = f"dustkapscatmat_{base_material}_{temp}K_a{grain_size}.inp"
+            final_name = f"dustkappa_{base_material}_{temp}K_a{grain_size}.inp"
         else:
-            final_name = f"dustkapscatmat_{base_material}_a{grain_size}.inp"
+            final_name = f"dustkappa_{base_material}_a{grain_size}.inp"
         
         # Copy to final location
         final_path = os.path.join(output_dir, final_name)

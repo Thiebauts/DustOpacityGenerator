@@ -1,6 +1,6 @@
 # Dust Property Generator using Optool
 
-A simple tool that generates dust opacity files for different temperatures using Optool, specifically designed for astrophysical dust modeling.
+A simple tool that generates dust opacity files for different temperatures using Optool, specifically designed to use Karine Demyk dust optical constants.
 
 ## Project Structure
 
