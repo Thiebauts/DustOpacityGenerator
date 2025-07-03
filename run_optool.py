@@ -78,12 +78,12 @@ def find_nk_file(material, temp=None, nk_dir=DEFAULT_NK_DIR):
 
 
 def format_mantle_fraction(fraction):
-    """Format mantle fraction for filename using scientific notation."""
+    """Format mantle fraction for filename using exact decimal notation."""
     if fraction is None:
         return ""
     
-    # Always use scientific notation for consistency
-    return f"{fraction:.0e}"
+    # Format as decimal to avoid scientific notation
+    return f"{fraction:.10f}".rstrip('0').rstrip('.')
 
 
 def run_optool(material, grain_size, temp=None, nk_dir=DEFAULT_NK_DIR, output_dir=DEFAULT_OUTPUT_DIR, 

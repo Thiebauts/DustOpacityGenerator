@@ -94,20 +94,21 @@ The script generates files named: `dustkappa_{material}[_mantle_info]_{temperatu
 
 Examples:
 - Pure core: `dustkappa_E40R_100K_a0.3.inp`
-- With mantle (20%): `dustkappa_E40R_mx035_2e-01_100K_a0.3.inp`
-- With mantle (0.5%): `dustkappa_E40R_mx035_5e-03_100K_a0.3.inp`
-- With mantle (0.1%): `dustkappa_E40R_mx035_1e-03_100K_a0.3.inp`
-- With mantle (0.001%): `dustkappa_E40R_mx035_1e-05_100K_a0.3.inp`
+- With mantle (20%): `dustkappa_E40R_mx035_0.2_100K_a0.3.inp`
+- With mantle (1.5%): `dustkappa_E40R_mx035_0.015_100K_a0.3.inp`
+- With mantle (0.075%): `dustkappa_E40R_mx035_0.00075_100K_a0.3.inp`
+- With mantle (0.000001%): `dustkappa_E40R_mx035_0.000000001_100K_a0.3.inp`
 
 ### Mantle Fraction Formatting
 
-The mantle fraction in filenames is formatted using scientific notation for consistency and clarity:
-- **0.2** → `2e-01`
-- **0.15** → `1e-01` 
-- **0.001** → `1e-03`
-- **0.00001** → `1e-05`
+The mantle fraction in filenames uses decimal notation (no scientific notation):
+- **0.2** → `0.2`
+- **0.15** → `0.15` 
+- **0.001** → `0.001`
+- **0.00075** → `0.00075`
+- **0.000000001** → `0.000000001`
 
-This ensures that all mantle fractions are clearly distinguishable in filenames, regardless of their magnitude.
+This ensures that the filename shows the exact decimal value, avoiding scientific notation entirely.
 
 ## Available Dust Materials
 
