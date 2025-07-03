@@ -77,6 +77,15 @@ def find_nk_file(material, temp=None, nk_dir=DEFAULT_NK_DIR):
     return None
 
 
+def format_mantle_fraction(fraction):
+    """Format mantle fraction for filename using scientific notation."""
+    if fraction is None:
+        return ""
+    
+    # Always use scientific notation for consistency
+    return f"{fraction:.0e}"
+
+
 def run_optool(material, grain_size, temp=None, nk_dir=DEFAULT_NK_DIR, output_dir=DEFAULT_OUTPUT_DIR, 
                mantle_material=None, mantle_fraction=None):
     """Run Optool to generate opacity file."""
@@ -137,7 +146,7 @@ def run_optool(material, grain_size, temp=None, nk_dir=DEFAULT_NK_DIR, output_di
         
         # Create final filename
         base_material = re.sub(r'_\d+K$', '', material)
-        mantle_suffix = f"_m{mantle_material}{mantle_fraction:.2f}" if mantle_material else ""
+        mantle_suffix = f"_m{mantle_material}_{format_mantle_fraction(mantle_fraction)}" if mantle_material else ""
         if temp:
             final_name = f"dustkappa_{base_material}{mantle_suffix}_{temp}K_a{grain_size}.inp"
         else:

@@ -94,7 +94,20 @@ The script generates files named: `dustkappa_{material}[_mantle_info]_{temperatu
 
 Examples:
 - Pure core: `dustkappa_E40R_100K_a0.3.inp`
-- With mantle: `dustkappa_E40R_mx0350.20_100K_a0.3.inp`
+- With mantle (20%): `dustkappa_E40R_mx035_2e-01_100K_a0.3.inp`
+- With mantle (0.5%): `dustkappa_E40R_mx035_5e-03_100K_a0.3.inp`
+- With mantle (0.1%): `dustkappa_E40R_mx035_1e-03_100K_a0.3.inp`
+- With mantle (0.001%): `dustkappa_E40R_mx035_1e-05_100K_a0.3.inp`
+
+### Mantle Fraction Formatting
+
+The mantle fraction in filenames is formatted using scientific notation for consistency and clarity:
+- **0.2** → `2e-01`
+- **0.15** → `1e-01` 
+- **0.001** → `1e-03`
+- **0.00001** → `1e-05`
+
+This ensures that all mantle fractions are clearly distinguishable in filenames, regardless of their magnitude.
 
 ## Available Dust Materials
 
