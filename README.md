@@ -28,12 +28,15 @@ python run_optool.py --material E40R --grain-size 0.3 --output-dir dust_files
 
 ## Command Line Options
 
-- `--material`: Dust material composition (default: E40R)
-  - Available materials: x035, x040, x050A, x050B, E10, E10R, E20, E20R, E30, E30R, E40, E40R
+- `--material`: Dust material composition for the core (default: E40R)
+  - Can use local materials: x035, x040, x050A, x050B, E10, E10R, E20, E20R, E30, E30R, E40, E40R
+  - Can also use built-in optool materials (run `optool -c` for full list)
 - `--grain-size`: Grain size in microns (default: 0.3)
 - `--temperatures`: Comma-separated temperatures in K (default: 10,100,200,300)
 - `--output-dir`: Directory to save output files (default: radmc3d_model)
 - `--nk-dir`: Directory containing .lnk files (default: data/nk_files)
+- `--mantle-material`: Mantle material (optional, can use local or built-in optool materials)
+- `--mantle-fraction`: Mantle mass fraction relative to core mass (e.g., 0.2 for 20% mantle)
 
 ## Examples
 
@@ -52,13 +55,50 @@ Generate single temperature file:
 python run_optool.py --material E40R --grain-size 0.3 --no-temp-dependent
 ```
 
+**NEW: Generate files with mantle using local materials** (20% x035 mantle around E40R core):
+```bash
+python run_optool.py --material E40R --grain-size 0.3 --mantle-material x035 --mantle-fraction 0.2
+```
+
+**NEW: Generate files with mantle using built-in optool materials** (30% water ice mantle around pyroxene core):
+```bash
+python run_optool.py --material pyr --grain-size 0.3 --mantle-material h2o --mantle-fraction 0.3
+```
+
+**NEW: Generate files with mantle for specific temperatures**:
+```bash
+python run_optool.py --material E40R --mantle-material x035 --mantle-fraction 0.15 --temperatures 100,200,300
+```
+
+## Mantle Functionality
+
+The tool now supports adding mantles around dust grains using Optool's `-m` option. This allows you to model composite grains with different core and mantle materials.
+
+### Key Features:
+- **Core Material**: Any local material or built-in optool material can be used as the core
+- **Mantle Material**: Any local material or built-in optool material can be used as the mantle
+- **Mantle Fraction**: The mass fraction of the mantle relative to the core mass (e.g., 0.2 means the mantle is 20% of the core mass)
+- **Temperature Consistency**: The same temperature is used for both core and mantle materials when available
+- **Mixed Material Types**: You can mix local and built-in materials (e.g., local E40R core with built-in h2o mantle)
+
+### Usage Notes:
+- Both `--mantle-material` and `--mantle-fraction` must be specified together
+- The mantle fraction should be between 0 and 1 (exclusive of 0)
+- The tool will automatically find appropriate .lnk files for local materials or use built-in optool materials
+- Output files include a mantle suffix to distinguish them from pure core files
+- For a full list of built-in optool materials, run: `optool -c`
+
 ## Output
 
-The script generates files named: `dustkapscatmat_{material}_{temperature}K_a{size}.inp`
+The script generates files named: `dustkappa_{material}[_mantle_info]_{temperature}K_a{size}.inp`
 
-For example: `dustkapscatmat_E40R_100K_a0.3.inp`
+Examples:
+- Pure core: `dustkappa_E40R_100K_a0.3.inp`
+- With mantle: `dustkappa_E40R_mx0350.20_100K_a0.3.inp`
 
 ## Available Dust Materials
+
+### Local Materials (with .lnk files in this package)
 
 | Material | Composition | Density (g/cm³) |
 |----------|-------------|-----------------|
@@ -74,6 +114,21 @@ For example: `dustkapscatmat_E40R_100K_a0.3.inp`
 | E30R | Mg(0.7)Fe(0.3)SiO3; Fe²⁺ | 3.0 |
 | E40 | Mg(0.6)Fe(0.4)SiO3; Fe³⁺ | 3.1 |
 | E40R | Mg(0.6)Fe(0.4)SiO3; Fe²⁺ | 3.1 |
+
+### Built-in Optool Materials
+
+Optool includes many additional built-in materials such as:
+- `pyr` - Pyroxene
+- `h2o` - Water ice
+- `c` - Carbon
+- `gra` - Graphite
+- `sic` - Silicon carbide
+- `fe-c` - Iron-carbon compounds
+- And many more...
+
+For a complete list of built-in materials, run: `optool -c`
+
+All materials (local and built-in) can be used as either core or mantle materials.
 
 ## Contributing
 
