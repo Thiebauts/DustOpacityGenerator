@@ -15,6 +15,9 @@ output/
 *.inp
 *.dat
 
+# Claude
+CLAUDE.md
+
 # OS specific
 .DS_Store
 .DS_Store?
