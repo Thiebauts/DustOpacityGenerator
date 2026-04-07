@@ -1,298 +1,404 @@
 #!/usr/bin/env python3
 """
-Simple Optool Runner for Dust Opacity Generation
+Dust Opacity Generator
 
-This script runs Optool to generate dust opacity files for various 
-materials, temperatures, and grain sizes for astrophysical simulations.
+Generates dust opacity files for astrophysical simulations using Optool,
+with support for Karine Demyk dust optical constants, temperature-dependent
+opacities, and composite core-mantle grain structures.
 """
 
-import os
-import subprocess
-import shutil
 import argparse
+import logging
+import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
-import re
+
+log = logging.getLogger(__name__)
 
 # Default values
 DEFAULT_MATERIAL = "E40R"
 DEFAULT_GRAIN_SIZE = 0.3
 DEFAULT_TEMPERATURES = [10, 100, 200, 300]
-DEFAULT_NK_DIR = "data/nk_files"
-DEFAULT_OUTPUT_DIR = "radmc3d_model"
+DEFAULT_NK_DIR = Path("data/nk_files")
+DEFAULT_OUTPUT_DIR = Path("radmc3d_model")
 
-# Material densities (g/cm³)
-MATERIAL_DENSITIES = {
-    'x035': 2.7,   # (0.65)MgO-(0.35)SiO2
-    'x040': 2.7,   # (0.60)MgO-(0.40)SiO2
-    'x050A': 2.7,  # (0.50)MgO-(0.50)SiO2 structure A
-    'x050B': 2.7,  # (0.50)MgO-(0.50)SiO2 structure B
-    'E10': 2.8,    # Mg(0.9)Fe(0.1)SiO3; Fe³⁺
-    'E10R': 2.8,   # Mg(0.9)Fe(0.1)SiO3; Fe²⁺
-    'E20': 2.9,    # Mg(0.8)Fe(0.2)SiO3; Fe³⁺
-    'E20R': 2.9,   # Mg(0.8)Fe(0.2)SiO3; Fe²⁺
-    'E30': 3.0,    # Mg(0.7)Fe(0.3)SiO3; Fe³⁺
-    'E30R': 3.0,   # Mg(0.7)Fe(0.3)SiO3; Fe²⁺
-    'E40': 3.1,    # Mg(0.6)Fe(0.4)SiO3; Fe³⁺
-    'E40R': 3.1    # Mg(0.6)Fe(0.4)SiO3; Fe²⁺
+# Regex for validating material names (alphanumeric, hyphens, underscores)
+_SAFE_MATERIAL_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+# Material densities (g/cm^3)
+MATERIAL_DENSITIES: dict[str, float] = {
+    "x035": 2.7,   # (0.65)MgO-(0.35)SiO2
+    "x040": 2.7,   # (0.60)MgO-(0.40)SiO2
+    "x050A": 2.7,  # (0.50)MgO-(0.50)SiO2 structure A
+    "x050B": 2.7,  # (0.50)MgO-(0.50)SiO2 structure B
+    "E10": 2.8,    # Mg(0.9)Fe(0.1)SiO3; Fe3+
+    "E10R": 2.8,   # Mg(0.9)Fe(0.1)SiO3; Fe2+
+    "E20": 2.9,    # Mg(0.8)Fe(0.2)SiO3; Fe3+
+    "E20R": 2.9,   # Mg(0.8)Fe(0.2)SiO3; Fe2+
+    "E30": 3.0,    # Mg(0.7)Fe(0.3)SiO3; Fe3+
+    "E30R": 3.0,   # Mg(0.7)Fe(0.3)SiO3; Fe2+
+    "E40": 3.1,    # Mg(0.6)Fe(0.4)SiO3; Fe3+
+    "E40R": 3.1,   # Mg(0.6)Fe(0.4)SiO3; Fe2+
 }
 
 
-def check_optool():
-    """Check if Optool is available."""
+def _validate_material_name(name: str) -> None:
+    """Raise ValueError if a material name contains unsafe characters."""
+    if not _SAFE_MATERIAL_RE.match(name):
+        raise ValueError(
+            f"Invalid material name '{name}'. "
+            "Only alphanumeric characters, hyphens, and underscores are allowed."
+        )
+
+
+def check_optool() -> bool:
+    """Check if Optool is installed and accessible."""
     try:
-        result = subprocess.run(["optool", "--version"], 
-                               capture_output=True, text=True, check=False)
-        if result.returncode == 0 or "optool" in result.stdout.lower() or "optool" in result.stderr.lower():
-            return True
-        return False
+        result = subprocess.run(
+            ["optool", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return (
+            result.returncode == 0
+            or "optool" in result.stdout.lower()
+            or "optool" in result.stderr.lower()
+        )
     except FileNotFoundError:
         return False
 
 
-def find_nk_file(material, temp=None, nk_dir=DEFAULT_NK_DIR):
-    """Find the .lnk file for the material and temperature."""
-    if not os.path.exists(nk_dir):
-        print(f"Error: Directory {nk_dir} not found.")
+def find_nk_file(
+    material: str,
+    temp: int | None = None,
+    nk_dir: Path = DEFAULT_NK_DIR,
+) -> Path | None:
+    """Find the .lnk file for a given material and optional temperature.
+
+    Search order:
+      1. Temperature-specific file  ({material}_{temp}K.lnk)
+      2. Exact match               ({material}.lnk)
+      3. Partial (case-insensitive) match among directory entries
+    """
+    if not nk_dir.is_dir():
+        log.error("Directory %s not found.", nk_dir)
         return None
-    
-    # Try temperature-specific file first
+
     if temp is not None:
-        temp_file = os.path.join(nk_dir, f"{material}_{temp}K.lnk")
-        if os.path.exists(temp_file):
+        temp_file = nk_dir / f"{material}_{temp}K.lnk"
+        if temp_file.exists():
             return temp_file
-    
-    # Try exact match without temperature
-    exact_file = os.path.join(nk_dir, f"{material}.lnk")
-    if os.path.exists(exact_file):
+
+    exact_file = nk_dir / f"{material}.lnk"
+    if exact_file.exists():
         return exact_file
-    
-    # Search for partial matches
-    for filename in os.listdir(nk_dir):
-        if filename.lower().endswith('.lnk') and material.lower() in filename.lower():
+
+    for path in sorted(nk_dir.iterdir()):
+        if path.suffix.lower() == ".lnk" and material.lower() in path.name.lower():
             if temp is not None:
-                print(f"Warning: Using {filename} which may not match {temp}K exactly.")
-            return os.path.join(nk_dir, filename)
-    
+                log.warning(
+                    "Using %s which may not match %dK exactly.", path.name, temp
+                )
+            return path
+
     return None
 
 
-def format_mantle_fraction(fraction):
-    """Format mantle fraction for filename using exact decimal notation."""
+def format_mantle_fraction(fraction: float | None) -> str:
+    """Format a mantle fraction as a clean decimal string (no scientific notation)."""
     if fraction is None:
         return ""
-    
-    # Format as decimal to avoid scientific notation
-    return f"{fraction:.10f}".rstrip('0').rstrip('.')
+    return f"{fraction:.10f}".rstrip("0").rstrip(".")
 
 
-def run_optool(material, grain_size, temp=None, nk_dir=DEFAULT_NK_DIR, output_dir=DEFAULT_OUTPUT_DIR, 
-               mantle_material=None, mantle_fraction=None):
-    """Run Optool to generate opacity file."""
-    
-    # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Find the .lnk file for core material
+def run_optool(
+    material: str,
+    grain_size: float,
+    temp: int | None = None,
+    nk_dir: Path = DEFAULT_NK_DIR,
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    mantle_material: str | None = None,
+    mantle_fraction: float | None = None,
+) -> Path | None:
+    """Run Optool to generate a single opacity file.
+
+    Returns the path to the generated file, or None on failure.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Resolve core material
     nk_file = find_nk_file(material, temp, nk_dir)
-    use_builtin_core = False
-    if not nk_file:
-        # Try as built-in optool material
-        use_builtin_core = True
-        nk_file = material
-        print(f"Using built-in optool material: {material}")
-    
-    # Find the .lnk file for mantle material if specified
-    mantle_nk_file = None
-    use_builtin_mantle = False
+    if nk_file:
+        core_arg = str(nk_file)
+    else:
+        log.info("Using built-in optool material: %s", material)
+        core_arg = material
+
+    # Resolve mantle material
+    mantle_arg: str | None = None
     if mantle_material and mantle_fraction:
-        mantle_nk_file = find_nk_file(mantle_material, temp, nk_dir)
-        if not mantle_nk_file:
-            # Try as built-in optool material
-            use_builtin_mantle = True
-            mantle_nk_file = mantle_material
-            print(f"Using built-in optool material for mantle: {mantle_material}")
-    
-    # Create temporary directory for Optool output
-    temp_dir = os.path.join(output_dir, "temp_optool")
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    try:
-        # Build Optool command
-        cmd = [
-            "optool",
-            nk_file,
-            "-radmc",                # RADMC-3D format
-            "-a", str(grain_size),   # grain size in microns
-            "-o", temp_dir           # output directory
-        ]
-        
-        # Add mantle option if specified
-        if mantle_material and mantle_fraction:
-            cmd.extend(["-m", mantle_nk_file, str(mantle_fraction)])
-        
-        print(f"Running Optool for {material}, grain size {grain_size}μm" + 
-              (f" at {temp}K" if temp else "") + 
-              (f" with {mantle_material} mantle ({mantle_fraction*100:.1f}%)" if mantle_material else "") + "...")
-        
-        # Run Optool
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        
-        # Find generated file
-        source_file = os.path.join(temp_dir, "dustkappa.inp")
-        if not os.path.exists(source_file):
-            print(f"Error: Expected output file {source_file} not found.")
-            return None
-        
-        # Create final filename
-        base_material = re.sub(r'_\d+K$', '', material)
-        mantle_suffix = f"_m{mantle_material}_{format_mantle_fraction(mantle_fraction)}" if mantle_material else ""
-        if temp:
-            final_name = f"dustkappa_{base_material}{mantle_suffix}_{temp}K_a{grain_size}.inp"
+        mantle_nk = find_nk_file(mantle_material, temp, nk_dir)
+        if mantle_nk:
+            mantle_arg = str(mantle_nk)
         else:
-            final_name = f"dustkappa_{base_material}{mantle_suffix}_a{grain_size}.inp"
-        
-        # Copy to final location
-        final_path = os.path.join(output_dir, final_name)
+            log.info("Using built-in optool material for mantle: %s", mantle_material)
+            mantle_arg = mantle_material
+
+    temp_dir = output_dir / "temp_optool"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        cmd: list[str] = [
+            "optool",
+            core_arg,
+            "-radmc",
+            "-a", str(grain_size),
+            "-o", str(temp_dir),
+        ]
+
+        if mantle_arg and mantle_fraction:
+            cmd.extend(["-m", mantle_arg, str(mantle_fraction)])
+
+        status_parts = [f"{material}, grain size {grain_size}\u03bcm"]
+        if temp:
+            status_parts.append(f"at {temp}K")
+        if mantle_material and mantle_fraction:
+            status_parts.append(
+                f"with {mantle_material} mantle ({mantle_fraction * 100:.1f}%)"
+            )
+        log.info("Running Optool for %s...", " ".join(status_parts))
+
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        source_file = temp_dir / "dustkappa.inp"
+        if not source_file.exists():
+            log.error("Expected output file %s not found.", source_file)
+            return None
+
+        # Build final filename
+        base_material = re.sub(r"_\d+K$", "", material)
+        mantle_suffix = (
+            f"_m{mantle_material}_{format_mantle_fraction(mantle_fraction)}"
+            if mantle_material
+            else ""
+        )
+        temp_part = f"_{temp}K" if temp else ""
+        final_name = f"dustkappa_{base_material}{mantle_suffix}{temp_part}_a{grain_size}.inp"
+
+        final_path = output_dir / final_name
         shutil.copy2(source_file, final_path)
-        
-        print(f"Generated: {final_name}")
+
+        log.info("Generated: %s", final_name)
         return final_path
-        
-    except subprocess.CalledProcessError as e:
-        print(f"Error running Optool: {e}")
-        print(f"Command output: {e.stdout}")
-        print(f"Command error: {e.stderr}")
+
+    except subprocess.CalledProcessError as exc:
+        log.error("Optool failed: %s", exc)
+        if exc.stdout:
+            log.error("stdout: %s", exc.stdout.strip())
+        if exc.stderr:
+            log.error("stderr: %s", exc.stderr.strip())
         return None
-    except Exception as e:
-        print(f"Unexpected error: {e}")
+    except Exception:
+        log.exception("Unexpected error")
         return None
     finally:
-        # Clean up temporary directory
-        if os.path.exists(temp_dir):
+        if temp_dir.exists():
             shutil.rmtree(temp_dir)
 
 
-def main():
-    """Main function."""
+def main() -> int:
     parser = argparse.ArgumentParser(
-        description='Generate dust opacity files using Optool',
+        description="Generate dust opacity files using Optool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
 Examples:
   # Default parameters (material={DEFAULT_MATERIAL}, grain-size={DEFAULT_GRAIN_SIZE})
   python run_optool.py
-  
+
   # Custom material and grain size
   python run_optool.py --material E20R --grain-size 0.5
-  
+
   # Custom temperatures
   python run_optool.py --temperatures 50,150,250
-  
-  # Single temperature
+
+  # Single temperature-independent file
   python run_optool.py --material E40R --grain-size 0.3 --no-temp-dependent
-  
-  # With mantle using local materials (20% x035 mantle on E40R core)
+
+  # Core-mantle grain with local materials (20% x035 mantle on E40R core)
   python run_optool.py --material E40R --grain-size 0.3 --mantle-material x035 --mantle-fraction 0.2
-  
-  # With mantle using built-in optool materials (30% water ice mantle on pyroxene core)
+
+  # Core-mantle grain with built-in optool materials (30% water ice on pyroxene)
   python run_optool.py --material pyr --grain-size 0.3 --mantle-material h2o --mantle-fraction 0.3
-  
-  # With mantle for different temperatures
-  python run_optool.py --material E40R --mantle-material x035 --mantle-fraction 0.15 --temperatures 100,200,300
-        """
+        """,
     )
-    
-    parser.add_argument('--material', type=str, default=DEFAULT_MATERIAL,
-                       help=f'Dust material for the core (default: {DEFAULT_MATERIAL}). '
-                            f'Can use local materials ({", ".join(MATERIAL_DENSITIES.keys())}) '
-                            f'or built-in optool materials (run "optool -c" for full list)')
-    parser.add_argument('--grain-size', type=float, default=DEFAULT_GRAIN_SIZE,
-                       help=f'Grain size in microns (default: {DEFAULT_GRAIN_SIZE})')
-    parser.add_argument('--temperatures', type=str, 
-                       default=','.join(map(str, DEFAULT_TEMPERATURES)),
-                       help=f'Comma-separated temperatures in K (default: {",".join(map(str, DEFAULT_TEMPERATURES))})')
-    parser.add_argument('--nk-dir', type=str, default=DEFAULT_NK_DIR,
-                       help=f'Directory with .lnk files (default: {DEFAULT_NK_DIR})')
-    parser.add_argument('--output-dir', type=str, default=DEFAULT_OUTPUT_DIR,
-                       help=f'Output directory (default: {DEFAULT_OUTPUT_DIR})')
-    parser.add_argument('--no-temp-dependent', action='store_true',
-                       help='Generate single file without temperature dependency')
-    
-    # Mantle options
-    parser.add_argument('--mantle-material', type=str, default=None,
-                       help='Mantle material (optional). Can use local materials '
-                            f'({", ".join(MATERIAL_DENSITIES.keys())}) or built-in optool materials')
-    parser.add_argument('--mantle-fraction', type=float, default=None,
-                       help='Mantle mass fraction relative to core mass (e.g., 0.2 for 20%% mantle)')
-    
+
+    parser.add_argument(
+        "--material",
+        default=DEFAULT_MATERIAL,
+        help=(
+            f"Core dust material (default: {DEFAULT_MATERIAL}). "
+            f"Local: {', '.join(MATERIAL_DENSITIES)}. "
+            'Built-in: run "optool -c" for full list.'
+        ),
+    )
+    parser.add_argument(
+        "--grain-size",
+        type=float,
+        default=DEFAULT_GRAIN_SIZE,
+        help=f"Grain size in microns (default: {DEFAULT_GRAIN_SIZE})",
+    )
+    parser.add_argument(
+        "--temperatures",
+        default=",".join(map(str, DEFAULT_TEMPERATURES)),
+        help=f'Comma-separated temperatures in K (default: {",".join(map(str, DEFAULT_TEMPERATURES))})',
+    )
+    parser.add_argument(
+        "--nk-dir",
+        type=Path,
+        default=DEFAULT_NK_DIR,
+        help=f"Directory with .lnk files (default: {DEFAULT_NK_DIR})",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"Output directory (default: {DEFAULT_OUTPUT_DIR})",
+    )
+    parser.add_argument(
+        "--no-temp-dependent",
+        action="store_true",
+        help="Generate a single file without temperature dependency",
+    )
+    parser.add_argument(
+        "--mantle-material",
+        default=None,
+        help=(
+            "Mantle material (optional). Accepts local or built-in optool materials."
+        ),
+    )
+    parser.add_argument(
+        "--mantle-fraction",
+        type=float,
+        default=None,
+        help="Mantle mass fraction relative to core (e.g. 0.2 = 20%%)",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose (debug) output",
+    )
+
     args = parser.parse_args()
-    
-    # Check if Optool is available
+
+    # Configure logging
+    logging.basicConfig(
+        format="%(levelname)s: %(message)s",
+        level=logging.DEBUG if args.verbose else logging.INFO,
+    )
+
+    # --- Validation ----------------------------------------------------------
+
     if not check_optool():
-        print("Error: Optool not found. Please install Optool and ensure it's in your PATH.")
-        print("See: https://github.com/cdominik/optool")
+        log.error(
+            "Optool not found. Install it and ensure it is in your PATH.\n"
+            "  https://github.com/cdominik/optool"
+        )
         return 1
-    
-    # Validate mantle arguments
-    if args.mantle_material and args.mantle_fraction is None:
-        print("Error: --mantle-fraction is required when --mantle-material is specified.")
-        return 1
-    
-    if args.mantle_fraction is not None and args.mantle_material is None:
-        print("Error: --mantle-material is required when --mantle-fraction is specified.")
-        return 1
-    
-    if args.mantle_fraction is not None and (args.mantle_fraction <= 0 or args.mantle_fraction > 1):
-        print("Error: --mantle-fraction must be between 0 and 1 (exclusive of 0).")
-        return 1
-    
-    # Check if materials are known
-    if args.material not in MATERIAL_DENSITIES:
-        print(f"Note: Material '{args.material}' not found in local database. Will try as built-in optool material.")
-        print("Local materials available:", ", ".join(MATERIAL_DENSITIES.keys()))
-        print("For full list of optool materials, run: optool -c")
-    
-    if args.mantle_material and args.mantle_material not in MATERIAL_DENSITIES:
-        print(f"Note: Mantle material '{args.mantle_material}' not found in local database. Will try as built-in optool material.")
-        print("Local materials available:", ", ".join(MATERIAL_DENSITIES.keys()))
-        print("For full list of optool materials, run: optool -c")
-    
-    # Check if nk directory exists
-    if not os.path.exists(args.nk_dir):
-        print(f"Error: Directory '{args.nk_dir}' not found.")
-        return 1
-    
-    # Generate opacity files
-    if args.no_temp_dependent:
-        # Single file without temperature
-        result = run_optool(args.material, args.grain_size, 
-                          nk_dir=args.nk_dir, output_dir=args.output_dir,
-                          mantle_material=args.mantle_material, 
-                          mantle_fraction=args.mantle_fraction)
-        return 0 if result else 1
-    else:
-        # Temperature series
-        temperatures = [int(t.strip()) for t in args.temperatures.split(',')]
-        
-        print(f"Generating opacity files for temperatures: {temperatures}")
+
+    # Material name safety
+    try:
+        _validate_material_name(args.material)
         if args.mantle_material:
-            print(f"Using mantle: {args.mantle_material} ({args.mantle_fraction*100:.1f}% of core mass)")
-        
-        success_count = 0
-        
-        for temp in temperatures:
-            result = run_optool(args.material, args.grain_size, temp,
-                              args.nk_dir, args.output_dir,
-                              args.mantle_material, args.mantle_fraction)
-            if result:
-                success_count += 1
-        
-        print(f"\nSuccessfully generated {success_count}/{len(temperatures)} files")
-        print(f"Output directory: {os.path.abspath(args.output_dir)}")
-        
-        return 0 if success_count == len(temperatures) else 1
+            _validate_material_name(args.mantle_material)
+    except ValueError as exc:
+        log.error("%s", exc)
+        return 1
+
+    # Mantle arguments must come in pairs
+    if args.mantle_material and args.mantle_fraction is None:
+        log.error("--mantle-fraction is required when --mantle-material is specified.")
+        return 1
+    if args.mantle_fraction is not None and args.mantle_material is None:
+        log.error("--mantle-material is required when --mantle-fraction is specified.")
+        return 1
+    if args.mantle_fraction is not None and not (0 < args.mantle_fraction <= 1):
+        log.error("--mantle-fraction must be between 0 (exclusive) and 1 (inclusive).")
+        return 1
+
+    # Grain size must be positive
+    if args.grain_size <= 0:
+        log.error("--grain-size must be positive.")
+        return 1
+
+    # Warn about unknown materials
+    for label, name in [("Core", args.material), ("Mantle", args.mantle_material)]:
+        if name and name not in MATERIAL_DENSITIES:
+            log.info(
+                "%s material '%s' not in local database; will try as built-in optool material.",
+                label,
+                name,
+            )
+
+    if not args.nk_dir.is_dir():
+        log.error("Directory '%s' not found.", args.nk_dir)
+        return 1
+
+    # --- Execution -----------------------------------------------------------
+
+    if args.no_temp_dependent:
+        result = run_optool(
+            args.material,
+            args.grain_size,
+            nk_dir=args.nk_dir,
+            output_dir=args.output_dir,
+            mantle_material=args.mantle_material,
+            mantle_fraction=args.mantle_fraction,
+        )
+        return 0 if result else 1
+
+    temperatures: list[int] = []
+    for t in args.temperatures.split(","):
+        t = t.strip()
+        try:
+            val = int(t)
+        except ValueError:
+            log.error("Invalid temperature value: '%s'", t)
+            return 1
+        if val <= 0:
+            log.error("Temperatures must be positive, got %d.", val)
+            return 1
+        temperatures.append(val)
+
+    log.info("Generating opacity files for temperatures: %s", temperatures)
+    if args.mantle_material:
+        log.info(
+            "Mantle: %s (%.1f%% of core mass)",
+            args.mantle_material,
+            args.mantle_fraction * 100,
+        )
+
+    success_count = sum(
+        1
+        for temp in temperatures
+        if run_optool(
+            args.material,
+            args.grain_size,
+            temp,
+            args.nk_dir,
+            args.output_dir,
+            args.mantle_material,
+            args.mantle_fraction,
+        )
+    )
+
+    log.info("Generated %d/%d files.", success_count, len(temperatures))
+    log.info("Output directory: %s", args.output_dir.resolve())
+
+    return 0 if success_count == len(temperatures) else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    sys.exit(main())
